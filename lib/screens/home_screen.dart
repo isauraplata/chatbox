@@ -76,7 +76,7 @@ class HomeScreen extends StatelessWidget {
               child: TextButton(
                 onPressed: () {
                   // Abre el enlace al repositorio en el navegador
-                  final url = 'https://github.com/isauraplata/chatbox-geminis.git';
+                  final url = 'https://github.com/isauraplata/chatbox.git';
                   launch(url); // Asegúrate de tener importado el paquete 'url_launcher'
                 },
                 child: const Text(

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:google_gemini/google_gemini.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:flutter_tts/flutter_tts.dart';
 import 'dart:convert';
 
 const apiKey = "AIzaSyCTREetNKiEu4cs1Wp8f8So5t6QJrfTJIs";
@@ -16,17 +18,26 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   bool loading = false;
   bool isConnected = true;
+  bool _isListening = false;
   List<Map<String, String>> textChat = [];
-  String userName = "Valeria";
+  String userName = "User";
 
   final TextEditingController _textController = TextEditingController();
   final ScrollController _controller = ScrollController();
 
   final gemini = GoogleGemini(apiKey: apiKey);
+  late stt.SpeechToText _speech;
+  late FlutterTts _flutterTts;
+
+  String cleanText(String text) {
+    return text.replaceAll('*', '');
+  }
 
   @override
   void initState() {
     super.initState();
+    _speech = stt.SpeechToText();
+    _flutterTts = FlutterTts();
     _checkConnectivity();
     _loadChats();
   }
@@ -60,7 +71,6 @@ class _ChatScreenState extends State<ChatScreen> {
 
     setState(() {
       loading = true;
-      // Agregar el nombre personalizado del emisor
       textChat.add({"role": userName, "text": query});
       _textController.clear();
     });
@@ -70,18 +80,52 @@ class _ChatScreenState extends State<ChatScreen> {
     gemini.generateFromText(query).then((value) {
       setState(() {
         loading = false;
-        textChat.add({"role": "Gemini", "text": value.text});
+        String cleanedText = cleanText(value.text);
+        textChat.add({"role": "Assistant", "text": cleanedText});
       });
+      _speak(cleanText(value.text));
       _saveChats();
       scrollToTheEnd();
     }).onError((error, stackTrace) {
       setState(() {
         loading = false;
-        textChat.add({"role": "Gemini", "text": error.toString()});
+        textChat.add({"role": "Assistant", "text": error.toString()});
       });
       _saveChats();
       scrollToTheEnd();
     });
+  }
+
+  void _speak(String text) async {
+    await _flutterTts.setLanguage("en-US");
+    await _flutterTts.setPitch(1.0);
+    await _flutterTts.speak(text);
+  }
+
+  void _listen() async {
+    if (!_isListening) {
+      bool available = await _speech.initialize(
+        onStatus: (status) => print('Status: $status'),
+        onError: (error) => print('Error: $error'),
+      );
+      if (available) {
+        setState(() {
+          _isListening = true;
+        });
+        _speech.listen(
+          onResult: (result) {
+            setState(() {
+              _textController.text = result.recognizedWords;
+            });
+          },
+        );
+      }
+    } else {
+      setState(() {
+        _isListening = false;
+      });
+      _speech.stop();
+    }
   }
 
   void scrollToTheEnd() {
@@ -100,8 +144,8 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Chatbox Gemini', style: TextStyle(color: Colors.white)),
-        backgroundColor: const Color.fromARGB(255, 190, 47, 212),
+        title: Text('Chat Assistant', style: TextStyle(color: Colors.white)),
+        backgroundColor: Color.fromARGB(255, 190, 47, 212),
         actions: [
           IconButton(
             icon: Icon(Icons.delete, color: Colors.white),
@@ -121,19 +165,17 @@ class _ChatScreenState extends State<ChatScreen> {
               child: ListView.builder(
                 controller: _controller,
                 itemCount: textChat.length,
-                padding: const EdgeInsets.all(8),
+                padding: EdgeInsets.all(8),
                 itemBuilder: (context, index) {
-                  bool isUser = textChat[index]["role"] == userName; // Comparar con el nombre personalizado
+                  bool isUser = textChat[index]["role"] == userName;
                   return Align(
-                    alignment: isUser
-                        ? Alignment.centerRight
-                        : Alignment.centerLeft,
+                    alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
                     child: Container(
-                      padding: const EdgeInsets.all(10),
-                      margin: const EdgeInsets.symmetric(vertical: 5),
+                      padding: EdgeInsets.all(10),
+                      margin: EdgeInsets.symmetric(vertical: 5),
                       constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.7),
                       decoration: BoxDecoration(
-                        color: isUser ? const Color.fromARGB(255, 144, 90, 252) : Colors.grey[300],
+                        color: isUser ? Color.fromARGB(255, 144, 90, 252) : Colors.grey[300],
                         borderRadius: BorderRadius.only(
                           topLeft: Radius.circular(12),
                           topRight: Radius.circular(12),
@@ -151,9 +193,9 @@ class _ChatScreenState extends State<ChatScreen> {
                               color: isUser ? Colors.white : Colors.black,
                             ),
                           ),
-                          const SizedBox(height: 5),
+                          SizedBox(height: 5),
                           Text(
-                            textChat[index]["text"]!,
+                            cleanText(textChat[index]["text"]!),
                             style: TextStyle(
                               color: isUser ? Colors.white : Colors.black,
                             ),
@@ -166,14 +208,18 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.all(8.0),
+              padding: EdgeInsets.all(8.0),
               child: Row(
                 children: [
+                  IconButton(
+                    icon: Icon(_isListening ? Icons.mic : Icons.mic_none),
+                    onPressed: _listen,
+                  ),
                   Expanded(
                     child: TextField(
                       controller: _textController,
                       decoration: InputDecoration(
-                        hintText: 'Escribe un mensaje...',
+                        hintText: 'Type a message...',
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(25),
                         ),
@@ -181,12 +227,9 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                   ),
                   SizedBox(width: 8),
-                  // Deshabilitar el botón si no hay conexión o si está cargando
                   IconButton(
                     icon: Icon(Icons.send),
-                    onPressed: (isConnected)
-                        ? () => fromText(query: _textController.text)
-                        : null,
+                    onPressed: isConnected ? () => fromText(query: _textController.text) : null,
                   ),
                 ],
               ),
